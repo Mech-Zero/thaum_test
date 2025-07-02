@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Исследовательская система</title>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+            display: block;
+        }
+        #progressPanel {
+            position: absolute;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px 30px;
+            border-radius: 8px;
+            color: white;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            z-index: 100;
+            border: 1px solid #8a2be2;
+        }
+        .progress-bar {
+            width: 300px;
+            height: 12px;
+            background: #2d2d2d;
+            margin: 10px 0;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #9c27b0, #e91e63);
+            transition: width 0.2s;
+        }
+        #progressText {
+            font-size: 16px;
+            margin-top: 5px;
+        }
+        #hint {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-family: Arial;
+            z-index: 100;
+        }
+        #unlockedText {
+            position: absolute;
+            top: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: #00ff00;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-family: Arial;
+            z-index: 100;
+            display: none;
+        }
+        #taskPage {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+            font-family: Arial;
+        }
+        #taskContent {
+            max-width: 600px;
+            text-align: center;
+            padding: 20px;
+        }
+        #confirmBtn {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: #9c27b0;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+    </style>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+    <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+</head>
+<body>
+    <canvas id="renderCanvas"></canvas>
+    <div id="progressPanel">
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div id="progressText">Прогресс исследования: 0%</div>
+    </div>
+    <div id="hint">Зажмите ЛКМ и двигайте мышью влево/вправо над кристаллом</div>
+    <div id="unlockedText">Новые кристаллы разблокированы!</div>
+
+    <!-- Страница задания -->
+    <div id="taskPage">
+        <div id="taskContent">
+            <h2 id="taskTitle">Задание</h2>
+            <p id="taskDescription">Описание задания появится здесь</p>
+            <button id="confirmBtn">Подтвердить выполнение</button>
+        </div>
+    </div>
+
+    <script>
+        // Глобальные переменные для хранения состояния
+        let currentResearch = null;
+        const researchData = {
+            "Основная теория": {
+                completed: false,
+                task: {
+                    title: "Изучение основ",
+                    description: "Прочитайте теорию и подтвердите понимание."
+                },
+                children: ["Продвинутая алхимия", "Инфернальные исследования"]
+            },
+            "Продвинутая алхимия": {
+                completed: false,
+                task: {
+                    title: "Алхимический рецепт",
+                    description: "Создайте эликсир по инструкции."
+                },
+                children: []
+            },
+            "Инфернальные исследования": {
+                completed: false,
+                task: {
+                    title: "Демонические руны",
+                    description: "Расшифруйте древние символы."
+                },
+                children: []
+            }
+        };
+
+        document.addEventListener("DOMContentLoaded", function() {
+            // Инициализация Babylon.js
+            const canvas = document.getElementById("renderCanvas");
+            const engine = new BABYLON.Engine(canvas, true);
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color4(0.05, 0.05, 0.1, 1);
+
+            // Камера
+            const camera = new BABYLON.ArcRotateCamera(
+                "camera",
+                -Math.PI / 2,
+                Math.PI / 3,
+                15,
+                BABYLON.Vector3.Zero(),
+                scene
+            );
+            camera.attachControl(canvas, true);
+            camera.lowerRadiusLimit = 5;
+            camera.upperRadiusLimit = 50;
+
+            // Освещение
+            const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+            light.intensity = 0.7;
+
+            // Класс для кристаллов исследований
+            class ResearchCrystal {
+                constructor(scene, position, color, name) {
+                    this.mesh = BABYLON.MeshBuilder.CreateIcoSphere(
+                        `crystal-${name}`,
+                        { radius: 1, subdivisions: 4 },
+                        scene
+                    );
+                    this.mesh.position = position;
+                    
+                    this.mat = new BABYLON.StandardMaterial(`mat-${name}`, scene);
+                    this.mat.emissiveColor = color;
+                    this.mat.alpha = 0.8;
+                    this.mesh.material = this.mat;
+                    
+                    this.name = name;
+                    this.isUnlocked = false;
+                    this.isActive = false;
+                    this.progress = 0;
+                    this.text = null;
+                    
+                    // Создаем текст только если кристалл разблокирован
+                    if (name === "Основная теория") {
+                        this.createText(scene);
+                        this.isUnlocked = true;
+                    }
+                }
+                
+                createText(scene) {
+                    const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
+                    this.text = new BABYLON.GUI.TextBlock();
+                    this.text.text = this.name;
+                    this.text.color = "white";
+                    this.text.fontSize = 20;
+                    this.text.linkOffsetY = -30;
+                    advancedTexture.addControl(this.text);
+                    this.text.linkWithMesh(this.mesh);
+                    this.updateTextVisibility();
+                }
+                
+                updateTextVisibility() {
+                    if (!this.text) return;
+                    
+                    // Проверяем, виден ли кристалл на экране
+                    const worldPos = this.mesh.getAbsolutePosition();
+                    const screenCoords = BABYLON.Vector3.Project(
+                        worldPos,
+                        BABYLON.Matrix.Identity(),
+                        scene.getTransformMatrix(),
+                        camera.viewport.toGlobal(
+                            engine.getRenderWidth(),
+                            engine.getRenderHeight()
+                        )
+                    );
+                    
+                    const isVisible = screenCoords.z > 0 && screenCoords.z < 1 && 
+                                    screenCoords.x >= 0 && screenCoords.x <= engine.getRenderWidth() && 
+                                    screenCoords.y >= 0 && screenCoords.y <= engine.getRenderHeight();
+                    
+                    this.text.isVisible = isVisible && this.isUnlocked;
+                }
+                
+                setActive(active) {
+                    this.isActive = active;
+                    if (active) {
+                        this.mat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+                    } else {
+                        this.mat.emissiveColor = this.isUnlocked ? 
+                            new BABYLON.Color3(0.7, 0.7, 0.7) : 
+                            new BABYLON.Color3(0.1, 0.1, 0.1);
+                    }
+                }
+                
+                unlock() {
+                    this.isUnlocked = true;
+                    this.setActive(false);
+                    this.createText(scene);
+                }
+            }
+
+            // Создаём кристаллы
+            const crystals = [];
+            const crystalPositions = {
+                "Основная теория": new BABYLON.Vector3(0, 0, 0),
+                "Продвинутая алхимия": new BABYLON.Vector3(-5, 3, -5),
+                "Инфернальные исследования": new BABYLON.Vector3(5, 3, -5)
+            };
+            
+            const crystalColors = {
+                "Основная теория": new BABYLON.Color3(0.7, 0.2, 0.8),
+                "Продвинутая алхимия": new BABYLON.Color3(0.2, 0.7, 0.8),
+                "Инфернальные исследования": new BABYLON.Color3(0.8, 0.5, 0.2)
+            };
+
+            // Инициализация всех кристаллов (но только основной видим изначально)
+            for (const name in crystalPositions) {
+                const crystal = new ResearchCrystal(
+                    scene,
+                    crystalPositions[name],
+                    crystalColors[name],
+                    name
+                );
+                
+                if (name !== "Основная теория") {
+                    crystal.mesh.setEnabled(false);
+                }
+                
+                crystals.push(crystal);
+            }
+
+            // Связи между кристаллами (линии)
+            const lines = [];
+            function createLine(scene, start, end, color) {
+                const line = BABYLON.MeshBuilder.CreateLines(
+                    "line",
+                    { points: [start, end] },
+                    scene
+                );
+                line.color = color;
+                lines.push(line);
+                return line;
+            }
+            
+            // Линии изначально скрыты
+            const line1 = createLine(
+                scene,
+                crystalPositions["Основная теория"],
+                crystalPositions["Продвинутая алхимия"],
+                new BABYLON.Color3(0.3, 0.3, 0.3)
+            );
+            line1.setEnabled(false);
+            
+            const line2 = createLine(
+                scene,
+                crystalPositions["Основная теория"],
+                crystalPositions["Инфернальные исследования"],
+                new BABYLON.Color3(0.3, 0.3, 0.3)
+            );
+            line2.setEnabled(false);
+
+            // Система частиц
+            const particles = new BABYLON.ParticleSystem("particles", 2000, scene);
+            particles.particleTexture = new BABYLON.Texture("https://assets.babylonjs.com/textures/flare.png", scene);
+            particles.minSize = 0.1;
+            particles.maxSize = 0.3;
+            particles.minLifeTime = 0.5;
+            particles.maxLifeTime = 1.5;
+            particles.emitRate = 0;
+            particles.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE;
+            particles.start();
+
+            // Переменные для системы прогрессии
+            let isResearching = false;
+            let lastMouseX = 0;
+            const researchSpeed = 0.8;
+            let activeCrystal = crystals.find(c => c.name === "Основная теория");
+
+            // Обработчики мыши
+            canvas.addEventListener("pointerdown", (e) => {
+                if (e.button === 0) {
+                    const pick = scene.pick(e.clientX, e.clientY);
+                    if (pick.hit && pick.pickedMesh.name.startsWith("crystal-")) {
+                        const crystal = crystals.find(c => c.mesh === pick.pickedMesh);
+                        if (crystal && crystal.isUnlocked) {
+                            // Если исследование уже завершено, открываем задание
+                            if (researchData[crystal.name].completed) {
+                                openTaskPage(crystal.name);
+                            } else {
+                                // Иначе начинаем исследование
+                                activeCrystal.setActive(false);
+                                activeCrystal = crystal;
+                                activeCrystal.setActive(true);
+                                isResearching = true;
+                                lastMouseX = e.clientX;
+                                particles.emitter = activeCrystal.mesh.position;
+                                particles.emitRate = 100;
+                            }
+                        }
+                    }
+                }
+            });
+
+            canvas.addEventListener("pointerup", () => {
+                isResearching = false;
+                particles.emitRate = 0;
+            });
+
+            canvas.addEventListener("pointermove", (e) => {
+                if (!isResearching) return;
+
+                const deltaX = e.clientX - lastMouseX;
+                lastMouseX = e.clientX;
+
+                if (Math.abs(deltaX) > 2) {
+                    activeCrystal.progress += researchSpeed;
+                    updateProgressBar();
+
+                    // Анимация активного кристалла
+                    activeCrystal.mesh.scaling.x = 1 + Math.sin(activeCrystal.progress * 0.1) * 0.1;
+                    activeCrystal.mesh.scaling.y = 1 + Math.cos(activeCrystal.progress * 0.1) * 0.1;
+                }
+            });
+
+            // Обновление прогресс-бара
+            function updateProgressBar() {
+                activeCrystal.progress = Math.min(activeCrystal.progress, 100);
+                document.getElementById("progressFill").style.width = `${activeCrystal.progress}%`;
+                document.getElementById("progressText").textContent = 
+                    `Исследование "${activeCrystal.name}": ${Math.floor(activeCrystal.progress)}%`;
+
+                if (activeCrystal.progress >= 100) {
+                    completeResearch(activeCrystal);
+                }
+            }
+
+            // Завершение исследования
+            function completeResearch(crystal) {
+                // Эффект взрыва частиц
+                const explosion = new BABYLON.ParticleSystem("explosion", 1000, scene);
+                explosion.particleTexture = particles.particleTexture;
+                explosion.emitter = crystal.mesh.position;
+                explosion.color1 = crystal.mat.emissiveColor.toColor4();
+                explosion.color2 = new BABYLON.Color4(1, 1, 1, 1);
+                explosion.minSize = 0.2;
+                explosion.maxSize = 0.5;
+                explosion.minLifeTime = 0.5;
+                explosion.maxLifeTime = 1.0;
+                explosion.emitRate = 1000;
+                explosion.blendMode = BABYLON.ParticleSystem.BLENDMODE_ONEONE;
+                explosion.start();
+                setTimeout(() => explosion.stop(), 200);
+
+                // Открываем страницу задания
+                openTaskPage(crystal.name);
+                
+                // Сброс прогресса
+                setTimeout(() => {
+                    crystal.progress = 0;
+                    updateProgressBar();
+                    crystal.mesh.scaling = new BABYLON.Vector3(1, 1, 1);
+                }, 2000);
+            }
+
+            // Открытие страницы задания
+            function openTaskPage(researchName) {
+                currentResearch = researchName;
+                const task = researchData[researchName].task;
+                document.getElementById("taskTitle").textContent = task.title;
+                document.getElementById("taskDescription").textContent = task.description;
+                document.getElementById("taskPage").style.display = "flex";
+            }
+
+            // Обработчик кнопки подтверждения задания
+            document.getElementById("confirmBtn").addEventListener("click", function() {
+                if (currentResearch) {
+                    // Помечаем исследование как завершенное
+                    researchData[currentResearch].completed = true;
+                    
+                    // Разблокируем дочерние исследования
+                    const children = researchData[currentResearch].children;
+                    if (children.length > 0) {
+                        unlockCrystals(children);
+                        document.getElementById("unlockedText").style.display = "block";
+                        setTimeout(() => {
+                            document.getElementById("unlockedText").style.display = "none";
+                        }, 3000);
+                    }
+                    
+                    // Возвращаемся на главный экран
+                    document.getElementById("taskPage").style.display = "none";
+                }
+            });
+
+            // Разблокировка кристаллов
+            function unlockCrystals(crystalNames) {
+                crystalNames.forEach(name => {
+                    const crystal = crystals.find(c => c.name === name);
+                    if (crystal) {
+                        crystal.unlock();
+                        crystal.mesh.setEnabled(true);
+                    }
+                });
+                
+                // Показываем линии связи
+                line1.setEnabled(true);
+                line2.setEnabled(true);
+            }
+
+            // Анимация и обновление видимости текста
+            scene.registerBeforeRender(() => {
+                crystals.forEach(crystal => {
+                    if (crystal.isUnlocked || crystal.name === "Основная теория") {
+                        crystal.mesh.rotation.y += 0.01;
+                        crystal.updateTextVisibility();
+                    }
+                });
+            });
+
+            // Запуск рендеринга
+            engine.runRenderLoop(() => scene.render());
+            window.addEventListener("resize", () => engine.resize());
+        });
+    </script>
+</body>
+</html>
